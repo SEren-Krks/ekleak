@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EKLeak — Parola Sızıntı Kontrolü</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #121821;
+    --border: #232b36;
+    --text: #e6edf3;
+    --muted: #8b96a5;
+    --accent: #4f8cff;
+    --danger: #ff5c5c;
+    --safe: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 48px 16px;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 { font-size: 28px; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .tagline { color: var(--muted); margin-bottom: 8px; font-size: 15px; }
+  .privacy-note {
+    background: #132018;
+    border: 1px solid #1e3a2a;
+    color: var(--safe);
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 28px;
+  }
+  form { display: flex; gap: 8px; margin-bottom: 24px; }
+  input[type="password"], input[type="text"] {
+    flex: 1;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 15px;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  button {
+    padding: 14px 22px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .toggle {
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: -14px;
+    margin-bottom: 20px;
+    display: inline-block;
+  }
+  .result-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+  }
+  .status-safe { color: var(--safe); font-weight: 600; margin: 0; }
+  .status-danger { color: var(--danger); font-weight: 600; margin: 0 0 6px 0; }
+  .count-detail { color: var(--muted); font-size: 14px; margin: 0; }
+  .error { color: var(--danger); font-size: 14px; margin-bottom: 12px; }
+  .loading { color: var(--muted); font-size: 14px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 40px; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔒 EKLeak</h1>
+  <p class="tagline">Parolanızın bilinen veri sızıntılarında geçip geçmediğini kontrol edin.</p>
+  <p class="privacy-note">✓ Parolanız hiçbir sunucuya tam olarak gönderilmez — kontrol tamamen tarayıcınızda, k-anonymity yöntemiyle yapılır.</p>
+
+  <form id="checkForm">
+    <input type="password" id="passInput" placeholder="Kontrol edilecek parola" required />
+    <button type="submit" id="submitBtn">Kontrol Et</button>
+  </form>
+  <span class="toggle" id="toggleVisibility">Parolayı göster</span>
+
+  <div id="output"></div>
+
+  <footer>
+    Sonuçlar <a href="https://haveibeenpwned.com/Passwords" target="_blank" rel="noopener">HaveIBeenPwned Pwned Passwords</a> veritabanı üzerinden, k-anonymity yöntemiyle sağlanır.<br/>
+    Parolanızın sadece SHA-1 hash'inin ilk 5 karakteri sunucuya gönderilir, tam parola asla gönderilmez.
+  </footer>
+</div>
+
+<script>
+  const form = document.getElementById('checkForm');
+  const output = document.getElementById('output');
+  const submitBtn = document.getElementById('submitBtn');
+  const passInput = document.getElementById('passInput');
+  const toggle = document.getElementById('toggleVisibility');
+
+  toggle.addEventListener('click', () => {
+    if (passInput.type === 'password') {
+      passInput.type = 'text';
+      toggle.textContent = 'Parolayı gizle';
+    } else {
+      passInput.type = 'password';
+      toggle.textContent = 'Parolayı göster';
+    }
+  });
+
+  async function sha1(text) {
+    const enc = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', enc);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = passInput.value;
+    output.innerHTML = '<p class="loading">Kontrol ediliyor...</p>';
+    submitBtn.disabled = true;
+
+    try {
+      const hash = await sha1(password);
+      const prefix = hash.slice(0, 5);
+      const suffix = hash.slice(5);
+
+      const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+      if (!res.ok) {
+        output.innerHTML = '<p class="error">Sorgu sırasında bir hata oluştu, tekrar deneyin.</p>';
+        return;
+      }
+
+      const text = await res.text();
+      const lines = text.split('\n');
+      let count = 0;
+      for (const line of lines) {
+        const [lineSuffix, lineCount] = line.trim().split(':');
+        if (lineSuffix === suffix) {
+          count = parseInt(lineCount, 10);
+          break;
+        }
+      }
+
+      if (count === 0) {
+        output.innerHTML = `
+          <div class="result-card">
+            <p class="status-safe">✓ Bu parola bilinen sızıntılarda bulunamadı.</p>
+          </div>`;
+      } else {
+        output.innerHTML = `
+          <div class="result-card">
+            <p class="status-danger">⚠ Bu parola bilinen sızıntılarda bulundu</p>
+            <p class="count-detail">${count.toLocaleString('tr-TR')} kez sızıntı veritabanında görüldü. Bu parolayı kullanmayı bırakmanız önerilir.</p>
+          </div>`;
+      }
+    } catch (err) {
+      output.innerHTML = '<p class="error">Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.</p>';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
