@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EKLeak — Sızıntı Veritabanı</title>
+<link rel="stylesheet" href="styles.css" />
+<style>
+  .breach-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 10px;
+  }
+  .breach-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .breach-name { font-weight: 700; font-size: 16px; }
+  .breach-count { color: var(--danger); font-weight: 600; font-size: 14px; }
+  .breach-meta { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .breach-desc { color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 10px; opacity: 0.85; }
+  #resultsInfo { color: var(--muted); font-size: 13px; margin: 10px 0 16px; }
+  .sortbar { display:flex; gap:8px; margin-bottom: 16px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="inner">
+    <a href="index.html" class="brand">🔒 EKLeak</a>
+    <div class="navlinks">
+      <a href="index.html">Parola Kontrolü</a>
+      <a href="breaches.html" class="active">Sızıntı Veritabanı</a>
+      <a href="analytics.html">Analiz</a>
+      <a href="about.html">Hakkında</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Sızıntı Veritabanı</h1>
+  <p class="tagline">Bilinen büyük veri sızıntılarını arayın — hangi şirket, ne zaman, kaç kişi etkilendi, ne tür veri sızdı.</p>
+
+  <input type="search" id="searchInput" placeholder="Şirket veya domain ara (örn. Adobe, LinkedIn, yahoo.com)..." />
+
+  <div class="sortbar">
+    <button class="secondary" id="sortByDate">Tarihe göre (en yeni)</button>
+    <button class="secondary" id="sortBySize">Etkilenen kişi sayısına göre (en büyük)</button>
+  </div>
+
+  <p id="resultsInfo"></p>
+  <div id="output"><p class="loading">Sızıntı veritabanı yükleniyor...</p></div>
+
+  <footer class="pagefooter">
+    Veriler <a href="https://haveibeenpwned.com/" target="_blank" rel="noopener">HaveIBeenPwned</a>'in halka açık, ücretsiz "breaches" API'sinden alınır. Kişisel e-posta sorgusu içermez, yalnızca genel sızıntı bilgisidir.
+  </footer>
+</div>
+
+<script>
+  const output = document.getElementById('output');
+  const searchInput = document.getElementById('searchInput');
+  const resultsInfo = document.getElementById('resultsInfo');
+
+  let allBreaches = [];
+  let sortMode = 'date';
+
+  function stripHtml(html) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+  }
+
+  function render(list) {
+    if (list.length === 0) {
+      output.innerHTML = '<p class="muted">Sonuç bulunamadı.</p>';
+      resultsInfo.textContent = '';
+      return;
+    }
+    resultsInfo.textContent = `${list.length} sızıntı gösteriliyor`;
+    output.innerHTML = list.map(b => `
+      <div class="breach-item">
+        <div class="breach-header">
+          <span class="breach-name">${b.Title || b.Name}</span>
+          <span class="breach-count">${b.PwnCount.toLocaleString('tr-TR')} hesap</span>
+        </div>
+        <div class="breach-meta">${b.Domain || 'bilinmiyor'} · Sızıntı tarihi: ${b.BreachDate}</div>
+        <div class="breach-desc">${stripHtml(b.Description).slice(0, 220)}${stripHtml(b.Description).length > 220 ? '…' : ''}</div>
+        <div class="tags">
+          ${b.DataClasses.map(d => `<span class="tag">${d}</span>`).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function applyFilterAndSort() {
+    const q = searchInput.value.trim().toLowerCase();
+    let list = allBreaches;
+    if (q) {
+      list = list.filter(b =>
+        (b.Title || b.Name).toLowerCase().includes(q) ||
+        (b.Domain || '').toLowerCase().includes(q)
+      );
+    }
+    list = [...list].sort((a, b) => {
+      if (sortMode === 'date') return new Date(b.BreachDate) - new Date(a.BreachDate);
+      return b.PwnCount - a.PwnCount;
+    });
+    render(list.slice(0, 100)); // performans için ilk 100 sonuç
+  }
+
+  searchInput.addEventListener('input', applyFilterAndSort);
+  document.getElementById('sortByDate').addEventListener('click', () => { sortMode = 'date'; applyFilterAndSort(); });
+  document.getElementById('sortBySize').addEventListener('click', () => { sortMode = 'size'; applyFilterAndSort(); });
+
+  fetch('https://haveibeenpwned.com/api/v3/breaches')
+    .then(res => {
+      if (!res.ok) throw new Error('API hatası: ' + res.status);
+      return res.json();
+    })
+    .then(data => {
+      allBreaches = data;
+      applyFilterAndSort();
+    })
+    .catch(err => {
+      output.innerHTML = `<p class="error">Veritabanı yüklenemedi: ${err.message}. Birkaç dakika sonra tekrar deneyin.</p>`;
+    });
+</script>
+</body>
+</html>
