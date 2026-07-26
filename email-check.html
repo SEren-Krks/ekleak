@@ -106,18 +106,29 @@
     submitBtn.disabled = true;
 
     try {
-      const res = await fetch(`https://api.xposedornot.com/v1/breach-analytics?email=${encodeURIComponent(email)}`);
+      const targetUrl = `https://api.xposedornot.com/v1/breach-analytics?email=${encodeURIComponent(email)}`;
+      const res = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(targetUrl));
 
       if (res.status === 429) {
         output.innerHTML = '<p class="error">Şu anda çok fazla sorgu var, birkaç dakika sonra tekrar deneyin.</p>';
         return;
       }
-      if (!res.ok) {
-        output.innerHTML = `<p class="error">Sorgu sırasında bir hata oluştu (${res.status}).</p>`;
+
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        output.innerHTML = '<p class="error">Sorgu sırasında beklenmeyen bir yanıt alındı, tekrar deneyin.</p>';
         return;
       }
 
-      const data = await res.json();
+      if (data.Error) {
+        output.innerHTML = `
+          <div class="card">
+            <p class="status-safe" style="margin:0;">✓ Bu e-posta bilinen sızıntılarda bulunamadı.</p>
+          </div>`;
+        return;
+      }
 
       if (!data.ExposedBreaches || !data.ExposedBreaches.breaches_details || data.ExposedBreaches.breaches_details.length === 0) {
         output.innerHTML = `
