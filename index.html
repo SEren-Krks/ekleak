@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EKLeak — Parola Sızıntı Kontrolü</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="inner">
+    <a href="index.html" class="brand">🔒 EKLeak</a>
+    <div class="navlinks">
+      <a href="index.html" class="active">Parola Kontrolü</a>
+      <a href="email-check.html">E-posta Kontrolü</a>
+      <a href="breaches.html">Sızıntı Veritabanı</a>
+      <a href="analytics.html">Analiz</a>
+      <a href="about.html">Hakkında</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Parola Sızıntı Kontrolü</h1>
+  <p class="tagline">Parolanızın bilinen veri sızıntılarında geçip geçmediğini kontrol edin.</p>
+
+  <div class="card" style="border-color:#1e3a2a; background:#132018;">
+    <p style="margin:0; color:var(--safe); font-size:13px;">✓ Parolanız hiçbir sunucuya tam olarak gönderilmez — kontrol tamamen tarayıcınızda, k-anonymity yöntemiyle yapılır.</p>
+  </div>
+
+  <form id="checkForm" style="display:flex; gap:8px; margin: 20px 0 4px;">
+    <input type="password" id="passInput" placeholder="Kontrol edilecek parola" required />
+    <button type="submit" id="submitBtn">Kontrol Et</button>
+  </form>
+  <span id="toggleVisibility" class="muted" style="font-size:13px; cursor:pointer;">Parolayı göster</span>
+
+  <div id="output" style="margin-top:20px;"></div>
+
+  <footer class="pagefooter">
+    Sonuçlar <a href="https://haveibeenpwned.com/Passwords" target="_blank" rel="noopener">HaveIBeenPwned Pwned Passwords</a> veritabanı üzerinden, k-anonymity yöntemiyle sağlanır.<br/>
+    Parolanızın sadece SHA-1 hash'inin ilk 5 karakteri sunucuya gönderilir, tam parola asla gönderilmez.
+  </footer>
+</div>
+
+<script>
+  const form = document.getElementById('checkForm');
+  const output = document.getElementById('output');
+  const submitBtn = document.getElementById('submitBtn');
+  const passInput = document.getElementById('passInput');
+  const toggle = document.getElementById('toggleVisibility');
+
+  toggle.addEventListener('click', () => {
+    if (passInput.type === 'password') {
+      passInput.type = 'text';
+      toggle.textContent = 'Parolayı gizle';
+    } else {
+      passInput.type = 'password';
+      toggle.textContent = 'Parolayı göster';
+    }
+  });
+
+  async function sha1(text) {
+    const enc = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-1', enc);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = passInput.value;
+    output.innerHTML = '<p class="loading">Kontrol ediliyor...</p>';
+    submitBtn.disabled = true;
+
+    try {
+      const hash = await sha1(password);
+      const prefix = hash.slice(0, 5);
+      const suffix = hash.slice(5);
+
+      const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`);
+      if (!res.ok) {
+        output.innerHTML = '<p class="error">Sorgu sırasında bir hata oluştu, tekrar deneyin.</p>';
+        return;
+      }
+
+      const text = await res.text();
+      const lines = text.split('\n');
+      let count = 0;
+      for (const line of lines) {
+        const [lineSuffix, lineCount] = line.trim().split(':');
+        if (lineSuffix === suffix) {
+          count = parseInt(lineCount, 10);
+          break;
+        }
+      }
+
+      if (count === 0) {
+        output.innerHTML = `
+          <div class="card">
+            <p class="status-safe" style="margin:0;">✓ Bu parola bilinen sızıntılarda bulunamadı.</p>
+          </div>`;
+      } else {
+        output.innerHTML = `
+          <div class="card">
+            <p class="status-danger" style="margin:0 0 6px;">⚠ Bu parola bilinen sızıntılarda bulundu</p>
+            <p class="muted" style="margin:0; font-size:14px;">${count.toLocaleString('tr-TR')} kez sızıntı veritabanında görüldü. Bu parolayı kullanmayı bırakmanız önerilir.</p>
+          </div>`;
+      }
+    } catch (err) {
+      output.innerHTML = '<p class="error">Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.</p>';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

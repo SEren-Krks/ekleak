@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EKLeak — E-posta Sızıntı Kontrolü</title>
+<link rel="stylesheet" href="styles.css" />
+<style>
+  .breach-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 10px;
+  }
+  .breach-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .breach-name { font-weight: 700; font-size: 16px; }
+  .breach-year { color: var(--warn); font-weight: 600; font-size: 14px; }
+  .breach-meta { color: var(--muted); font-size: 13px; margin: 6px 0 10px; }
+  .breach-desc { color: var(--text); font-size: 13px; line-height: 1.5; margin-bottom: 10px; opacity: 0.85; }
+  .risk-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+  .risk-low { background: #132018; color: var(--safe); }
+  .risk-medium { background: #2a2210; color: var(--warn); }
+  .risk-high { background: #2a1414; color: var(--danger); }
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="inner">
+    <a href="index.html" class="brand">🔒 EKLeak</a>
+    <div class="navlinks">
+      <a href="index.html">Parola Kontrolü</a>
+      <a href="email-check.html" class="active">E-posta Kontrolü</a>
+      <a href="breaches.html">Sızıntı Veritabanı</a>
+      <a href="analytics.html">Analiz</a>
+      <a href="about.html">Hakkında</a>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>E-posta Sızıntı Kontrolü</h1>
+  <p class="tagline">E-posta adresinizin hangi sitelerde, ne zaman sızdığını görün.</p>
+
+  <div class="card" style="border-color:#1e3a2a; background:#132018;">
+    <p style="margin:0; color:var(--safe); font-size:13px;">✓ E-posta adresiniz kaydedilmez, sorgular anlık işlenir ve saklanmaz.</p>
+  </div>
+
+  <form id="checkForm" style="display:flex; gap:8px; margin: 20px 0 24px;">
+    <input type="text" id="emailInput" placeholder="ornek@sirket.com" required />
+    <button type="submit" id="submitBtn">Kontrol Et</button>
+  </form>
+
+  <div id="output"></div>
+
+  <footer class="pagefooter">
+    Sonuçlar <a href="https://xposedornot.com" target="_blank" rel="noopener">XposedOrNot</a>'un ücretsiz, açık kaynaklı sızıntı veritabanı API'sinden alınır.<br/>
+    Bu ücretsiz katmanda saatte 25, günde 100 sorgu limiti vardır — çok fazla kişi aynı anda kullanırsa geçici olarak hata alabilirsiniz.
+  </footer>
+</div>
+
+<script>
+  const form = document.getElementById('checkForm');
+  const output = document.getElementById('output');
+  const submitBtn = document.getElementById('submitBtn');
+  const emailInput = document.getElementById('emailInput');
+
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  function riskClass(label) {
+    if (!label) return 'risk-low';
+    const l = label.toLowerCase();
+    if (l.includes('high')) return 'risk-high';
+    if (l.includes('medium')) return 'risk-medium';
+    return 'risk-low';
+  }
+
+  function riskLabelTr(label) {
+    if (!label) return 'Düşük';
+    const l = label.toLowerCase();
+    if (l.includes('high')) return 'Yüksek';
+    if (l.includes('medium')) return 'Orta';
+    return 'Düşük';
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = emailInput.value.trim();
+
+    if (!isValidEmail(email)) {
+      output.innerHTML = '<p class="error">Geçerli bir e-posta adresi girin.</p>';
+      return;
+    }
+
+    output.innerHTML = '<p class="loading">Kontrol ediliyor...</p>';
+    submitBtn.disabled = true;
+
+    try {
+      const res = await fetch(`https://api.xposedornot.com/v1/breach-analytics?email=${encodeURIComponent(email)}`);
+
+      if (res.status === 429) {
+        output.innerHTML = '<p class="error">Şu anda çok fazla sorgu var, birkaç dakika sonra tekrar deneyin.</p>';
+        return;
+      }
+      if (!res.ok) {
+        output.innerHTML = `<p class="error">Sorgu sırasında bir hata oluştu (${res.status}).</p>`;
+        return;
+      }
+
+      const data = await res.json();
+
+      if (!data.ExposedBreaches || !data.ExposedBreaches.breaches_details || data.ExposedBreaches.breaches_details.length === 0) {
+        output.innerHTML = `
+          <div class="card">
+            <p class="status-safe" style="margin:0;">✓ Bu e-posta bilinen sızıntılarda bulunamadı.</p>
+          </div>`;
+        return;
+      }
+
+      const breaches = data.ExposedBreaches.breaches_details;
+      const risk = data.BreachMetrics && data.BreachMetrics.risk && data.BreachMetrics.risk[0];
+
+      let html = `<div class="card">
+        <p class="status-danger" style="margin:0 0 10px;">⚠ ${breaches.length} sızıntıda bulundu</p>`;
+      if (risk) {
+        html += `<span class="risk-badge ${riskClass(risk.risk_label)}">Risk seviyesi: ${riskLabelTr(risk.risk_label)} (${risk.risk_score}/10)</span>`;
+      }
+      html += `</div>`;
+
+      html += breaches.map(b => `
+        <div class="breach-item">
+          <div class="breach-header">
+            <span class="breach-name">${b.breach}</span>
+            <span class="breach-year">${b.xposed_date || '—'}</span>
+          </div>
+          <div class="breach-meta">${b.domain || 'bilinmiyor'} · ${(b.xposed_records || 0).toLocaleString('tr-TR')} hesap etkilendi</div>
+          <div class="breach-desc">${b.details || ''}</div>
+          <div class="tags">
+            ${(b.xposed_data || '').split(';').filter(Boolean).map(d => `<span class="tag">${d.trim()}</span>`).join('')}
+          </div>
+        </div>
+      `).join('');
+
+      output.innerHTML = html;
+    } catch (err) {
+      output.innerHTML = '<p class="error">Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.</p>';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
